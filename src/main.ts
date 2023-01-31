@@ -1,8 +1,9 @@
-import { Plugin, TFile } from "obsidian";
+import { Plugin, Plugin_2, TFile, normalizePath } from "obsidian";
 import { BetterPdfSettings, BetterPdfSettingsTab } from "./settings";
 import * as pdfjs from "pdfjs-dist";
-import * as worker from "pdfjs-dist/build/pdf.worker.entry.js";
+import worker from "pdfjs-dist/build/pdf.worker.min.js";
 
+import AsyncMap from "./asyncMap";
 interface PdfNodeParameters {
 	range: Array<number>;
 	url: string;
@@ -14,17 +15,24 @@ interface PdfNodeParameters {
 	rect: Array<number>;
 }
 
+function buildPluginStaticResourceSrc(plug: Plugin, assetPath: string) {
+	return plug.app.vault.adapter.getResourcePath(normalizePath(plug.app.vault.configDir + "/" + "plugins" + "/" + plug.manifest.id + "/" + assetPath))
+}
+
+/* usage */
+
 export default class BetterPDFPlugin extends Plugin {
 	settings: BetterPdfSettings;
+	documents: AsyncMap<string, pdfjs.PDFDocumentProxy>
 
 	async onload() {
 		console.log("Better PDF loading...");
 
 		this.settings = Object.assign(new BetterPdfSettings(), await this.loadData());
 		this.addSettingTab(new BetterPdfSettingsTab(this.app, this));
-
+		this.documents = new AsyncMap()
 		pdfjs.GlobalWorkerOptions.workerSrc = worker;
-
+		new pdfjs.PDFWorker({})
 		this.registerMarkdownCodeBlockProcessor("pdf", async (src, el, ctx) => {
 			// Get Parameters
 			let parameters: PdfNodeParameters = null;
@@ -33,7 +41,8 @@ export default class BetterPDFPlugin extends Plugin {
 			} catch (e) {
 				el.createEl("h2", { text: "PDF Parameters invalid: " + e.message });
 			}
-
+			const PRINT_RESOLUTION = 300;
+			const PRINT_UNITS = 1;//PRINT_RESOLUTION / 72.0;
 			//Create PDF Node
 			if (parameters !== null) {
 				// console.log("Creating PDF Node with parameters: ", parameters);
@@ -45,19 +54,24 @@ export default class BetterPDFPlugin extends Plugin {
 						const folderPath = filePath.substring(0, filePath.lastIndexOf("/"));
 						parameters.url = folderPath + "/" + parameters.url.substring(2, parameters.url.length);
 					}
-					//Read Document
-					const arrayBuffer = await this.app.vault.adapter.readBinary(parameters.url);
-					const buffer = Buffer.from(arrayBuffer);
-					const document = await pdfjs.getDocument(buffer).promise;
+
+
+					const document = await this.documents.getOrSetAsync(parameters.url, async () => {
+						const arrayBuffer = await this.app.vault.adapter.readBinary(parameters.url);
+						const buffer = Buffer.from(arrayBuffer);
+						return await pdfjs.getDocument(buffer).promise;
+					});
+
 
 					// page parameter as trigger for whole pdf, 0 = all pages
-					if ((<number[]>parameters.page).includes(0)){
+					if ((<number[]>parameters.page).includes(0)) {
 						var pagesArray = [];
-						for(var i = 1;i <= document.numPages; i++){
+						for (var i = 1; i <= document.numPages; i++) {
 							pagesArray.push(i);
 						}
 						parameters.page = pagesArray;
 					}
+
 
 					//Read pages
 					for (const pageNumber of <number[]>parameters.page) {
@@ -89,29 +103,31 @@ export default class BetterPDFPlugin extends Plugin {
 
 						const context = canvas.getContext("2d");
 
-						const baseViewportWidth = page.getViewport({scale: 1.0}).width;
+						const baseViewportWidth = page.getViewport({ scale: 1.0 }).width;
 						const baseScale = canvas.clientWidth ? canvas.clientWidth / baseViewportWidth : 1;
-
+						console.log(baseViewportWidth)
 						const viewport = page.getViewport({
-							scale: baseScale * parameters.scale,
+							scale: baseScale * parameters.scale * PRINT_UNITS,
 							rotation: parameters.rotation,
 							offsetX: offsetX,
 							offsetY: offsetY,
 						});
 
 						if (parameters.rect[2] < 1) {
-							canvas.height = viewport.height;
-							canvas.width = viewport.width;
+							canvas.height = Math.floor(viewport.height * PRINT_UNITS);
+							canvas.width = Math.floor(viewport.width * PRINT_UNITS);
 						} else {
-							canvas.height = Math.floor(parameters.rect[2] * parameters.scale);
-							canvas.width = Math.floor(parameters.rect[3] * parameters.scale);
+							canvas.height = Math.floor(parameters.rect[2] * parameters.scale * PRINT_UNITS);
+							canvas.width = Math.floor(parameters.rect[3] * parameters.scale * PRINT_UNITS);
 						}
 
 						const renderContext = {
 							canvasContext: context,
+							// transform: [PRINT_UNITS, 0, 0, PRINT_UNITS, 0, 0],
 							viewport: viewport,
+							intent: "print"
 						};
-						await page.render(renderContext);
+						page.render(renderContext);
 					}
 				} catch (error) {
 					el.createEl("h2", { text: error });

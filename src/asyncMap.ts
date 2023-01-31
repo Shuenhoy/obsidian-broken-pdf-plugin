@@ -10,12 +10,14 @@ export default class AsyncMap<K, V> {
         if (this.map.has(key)) {
             return this.map.get(key);
         } else if (this.promises.has(key)) {
-            return await this.promises.get(key);
+            const v = await this.promises.get(key);
+            return v;
         } else {
             const value = setValue();
             this.promises.set(key, value);
             const result = await value;
             this.map.set(key, result);
+            this.promises.delete(key);
             return result;
         }
     }

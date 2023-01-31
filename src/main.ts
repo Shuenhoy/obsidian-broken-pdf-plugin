@@ -1,9 +1,11 @@
-import { Plugin, Plugin_2, TFile, normalizePath } from "obsidian";
+import { Plugin, Plugin_2, TFile, normalizePath, FileSystemAdapter } from "obsidian";
 import { BetterPdfSettings, BetterPdfSettingsTab } from "./settings";
 import * as pdfjs from "pdfjs-dist";
 import worker from "pdfjs-dist/build/pdf.worker.min.js";
 
 import AsyncMap from "./asyncMap";
+
+import { readBinary } from "./helper";
 interface PdfNodeParameters {
 	range: Array<number>;
 	url: string;
@@ -14,12 +16,6 @@ interface PdfNodeParameters {
 	rotation: number;
 	rect: Array<number>;
 }
-
-function buildPluginStaticResourceSrc(plug: Plugin, assetPath: string) {
-	return plug.app.vault.adapter.getResourcePath(normalizePath(plug.app.vault.configDir + "/" + "plugins" + "/" + plug.manifest.id + "/" + assetPath))
-}
-
-/* usage */
 
 export default class BetterPDFPlugin extends Plugin {
 	settings: BetterPdfSettings;
@@ -55,11 +51,9 @@ export default class BetterPDFPlugin extends Plugin {
 						parameters.url = folderPath + "/" + parameters.url.substring(2, parameters.url.length);
 					}
 
-
 					const document = await this.documents.getOrSetAsync(parameters.url, async () => {
-						const arrayBuffer = await this.app.vault.adapter.readBinary(parameters.url);
-						const buffer = Buffer.from(arrayBuffer);
-						return await pdfjs.getDocument(buffer).promise;
+
+						return await pdfjs.getDocument(await readBinary(parameters.url)).promise;
 					});
 
 

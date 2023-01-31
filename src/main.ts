@@ -4,6 +4,7 @@ import * as pdfjs from "pdfjs-dist";
 import worker from "pdfjs-dist/build/pdf.worker.min.js";
 
 import AsyncMap from "./asyncMap";
+import PQueue from 'p-queue';
 
 import { readBinary } from "./helper";
 interface PdfNodeParameters {
@@ -20,15 +21,15 @@ interface PdfNodeParameters {
 export default class BetterPDFPlugin extends Plugin {
 	settings: BetterPdfSettings;
 	documents: AsyncMap<string, pdfjs.PDFDocumentProxy>
-
+	pqueue: PQueue
 	async onload() {
 		console.log("Better PDF loading...");
+		this.pqueue = new PQueue({ concurrency: 1 })
 
 		this.settings = Object.assign(new BetterPdfSettings(), await this.loadData());
 		this.addSettingTab(new BetterPdfSettingsTab(this.app, this));
 		this.documents = new AsyncMap()
 		pdfjs.GlobalWorkerOptions.workerSrc = worker;
-		new pdfjs.PDFWorker({})
 		this.registerMarkdownCodeBlockProcessor("pdf", async (src, el, ctx) => {
 			// Get Parameters
 			let parameters: PdfNodeParameters = null;
@@ -51,7 +52,6 @@ export default class BetterPDFPlugin extends Plugin {
 					}
 
 					const document = await this.documents.getOrSetAsync(parameters.url, async () => {
-
 						return await pdfjs.getDocument(await readBinary(parameters.url)).promise;
 					});
 
@@ -118,7 +118,8 @@ export default class BetterPDFPlugin extends Plugin {
 							viewport: viewport,
 							intent: "print"
 						};
-						page.render(renderContext);
+						await this.pqueue.add(() => page.render(renderContext).promise);
+
 					}
 				} catch (error) {
 					el.createEl("h2", { text: error });

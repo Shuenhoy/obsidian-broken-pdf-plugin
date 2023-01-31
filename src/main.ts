@@ -38,12 +38,11 @@ export default class BetterPDFPlugin extends Plugin {
 				el.createEl("h2", { text: "PDF Parameters invalid: " + e.message });
 			}
 			const PRINT_RESOLUTION = 300;
-			const PRINT_UNITS = 1;//PRINT_RESOLUTION / 72.0;
+			const PRINT_UNITS = PRINT_RESOLUTION / 72.0;
 			//Create PDF Node
 			if (parameters !== null) {
 				// console.log("Creating PDF Node with parameters: ", parameters);
 				try {
-					console.log(parameters.url);
 					if (parameters.url.startsWith("./")) {
 						// find the substring of path all the way to the last slash
 						const filePath = ctx.sourcePath;
@@ -80,26 +79,27 @@ export default class BetterPDFPlugin extends Plugin {
 
 							host = href;
 						}
-
-						// Get Viewport
-						const offsetX = Math.floor(
-							parameters.rect[0] * -1 * parameters.scale
-						);
-						const offsetY = Math.floor(
-							parameters.rect[1] * -1 * parameters.scale
-						);
-
 						// Render Canvas
 						const canvas = host.createEl("canvas");
 						if (parameters.fit) {
 							canvas.style.width = "100%";
 						}
 
+						const baseViewport = page.getViewport({ scale: 1.0 });
+						const baseScale = canvas.clientWidth ? canvas.clientWidth / baseViewport.width : 1;
+
+						// Get Viewport
+						const offsetX = Math.floor(
+							parameters.rect[0] * -1 * parameters.scale * baseViewport.width * baseScale * PRINT_UNITS
+						);
+						const offsetY = Math.floor(
+							parameters.rect[1] * -1 * parameters.scale * baseViewport.height * baseScale * PRINT_UNITS
+						);
+
+
+
 						const context = canvas.getContext("2d");
 
-						const baseViewportWidth = page.getViewport({ scale: 1.0 }).width;
-						const baseScale = canvas.clientWidth ? canvas.clientWidth / baseViewportWidth : 1;
-						console.log(baseViewportWidth)
 						const viewport = page.getViewport({
 							scale: baseScale * parameters.scale * PRINT_UNITS,
 							rotation: parameters.rotation,
@@ -107,17 +107,14 @@ export default class BetterPDFPlugin extends Plugin {
 							offsetY: offsetY,
 						});
 
-						if (parameters.rect[2] < 1) {
-							canvas.height = Math.floor(viewport.height * PRINT_UNITS);
-							canvas.width = Math.floor(viewport.width * PRINT_UNITS);
-						} else {
-							canvas.height = Math.floor(parameters.rect[2] * parameters.scale * PRINT_UNITS);
-							canvas.width = Math.floor(parameters.rect[3] * parameters.scale * PRINT_UNITS);
-						}
+
+						canvas.height = Math.floor(viewport.height * parameters.rect[2] * parameters.scale * PRINT_UNITS);
+						canvas.width = Math.floor(viewport.width * parameters.rect[3] * parameters.scale * PRINT_UNITS);
+
 
 						const renderContext = {
 							canvasContext: context,
-							// transform: [PRINT_UNITS, 0, 0, PRINT_UNITS, 0, 0],
+							transform: [PRINT_UNITS, 0, 0, PRINT_UNITS, 0, 0],
 							viewport: viewport,
 							intent: "print"
 						};
@@ -192,7 +189,7 @@ export default class BetterPDFPlugin extends Plugin {
 		}
 
 		if (parameters.rect === undefined) {
-			parameters.rect = [0, 0, 0, 0];
+			parameters.rect = [0, 0, 1, 1];
 		}
 		return parameters;
 	}

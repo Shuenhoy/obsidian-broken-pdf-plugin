@@ -12,7 +12,6 @@ interface PdfNodeParameters {
 	url: string;
 	link: boolean;
 	page: number | Array<number | Array<number>>;
-	scale: number;
 	fit: boolean,
 	rotation: number;
 	rect: Array<number>;
@@ -38,7 +37,7 @@ export default class BetterPDFPlugin extends Plugin {
 			} catch (e) {
 				el.createEl("h2", { text: "PDF Parameters invalid: " + e.message });
 			}
-			const PRINT_RESOLUTION = 300;
+			const PRINT_RESOLUTION = this.settings.render_dpi;
 			const PRINT_UNITS = PRINT_RESOLUTION / 72.0;
 			//Create PDF Node
 			if (parameters !== null) {
@@ -84,16 +83,23 @@ export default class BetterPDFPlugin extends Plugin {
 						if (parameters.fit) {
 							canvas.style.width = "100%";
 						}
+						if (canvas.clientWidth == 0) continue;
 
-						const baseViewport = page.getViewport({ scale: 1.0 });
-						const baseScale = canvas.clientWidth ? canvas.clientWidth / baseViewport.width : 1;
+						const pageViewport = page.getViewport({ scale: 1.0 });
 
+						const viewportWidth = Math.floor(pageViewport.width * parameters.rect[3]);
+						const viewportHeight = Math.floor(pageViewport.height * parameters.rect[2]);
+
+						const canvasWidth = viewportWidth * window.devicePixelRatio * PRINT_UNITS;
+						const canvasHeight = Math.floor(canvasWidth / viewportWidth * viewportHeight);
+
+						let baseScale = canvasWidth / viewportWidth;
 						// Get Viewport
 						const offsetX = Math.floor(
-							parameters.rect[0] * -1 * parameters.scale * baseViewport.width * baseScale * PRINT_UNITS
+							parameters.rect[0] * -1 * pageViewport.width * baseScale
 						);
 						const offsetY = Math.floor(
-							parameters.rect[1] * -1 * parameters.scale * baseViewport.height * baseScale * PRINT_UNITS
+							parameters.rect[1] * -1 * pageViewport.height * baseScale
 						);
 
 
@@ -101,20 +107,26 @@ export default class BetterPDFPlugin extends Plugin {
 						const context = canvas.getContext("2d");
 
 						const viewport = page.getViewport({
-							scale: baseScale * parameters.scale * PRINT_UNITS,
+							scale: baseScale,
 							rotation: parameters.rotation,
 							offsetX: offsetX,
 							offsetY: offsetY,
 						});
 
 
-						canvas.height = Math.floor(viewport.height * parameters.rect[2] * parameters.scale * PRINT_UNITS);
-						canvas.width = Math.floor(viewport.width * parameters.rect[3] * parameters.scale * PRINT_UNITS);
+						canvas.width = canvasWidth;
+						canvas.height = canvasHeight;
 
+						new ResizeObserver(() => {
+							console.log(canvas.clientWidth);
+						}).observe(canvas);
+
+						new IntersectionObserver(() => {
+							console.log(canvas.getBoundingClientRect())
+						}).observe(canvas);
 
 						const renderContext = {
 							canvasContext: context,
-							transform: [PRINT_UNITS, 0, 0, PRINT_UNITS, 0, 0],
 							viewport: viewport,
 							intent: "print"
 						};
@@ -171,14 +183,6 @@ export default class BetterPDFPlugin extends Plugin {
 					i += 1;
 				}
 			}
-		}
-
-		if (
-			parameters.scale === undefined ||
-			parameters.scale < 0.1 ||
-			parameters.scale > 10.0
-		) {
-			parameters.scale = 1.0;
 		}
 
 		if (parameters.fit === undefined) {

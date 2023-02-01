@@ -7,6 +7,7 @@ declare class BetterPDFPlugin extends Plugin {
 export class BetterPdfSettings {
     fit_by_default: boolean = true;
     link_by_default: boolean = true;
+    render_dpi: number = 72;
 }
 
 export class BetterPdfSettingsTab extends PluginSettingTab {
@@ -39,5 +40,14 @@ export class BetterPdfSettingsTab extends PluginSettingTab {
                     this.plugin.settings.link_by_default = value;
                     this.plugin.saveData(this.plugin.settings);
                 }));
+
+        new Setting(containerEl)
+            .setName("PDF render DPI")
+            .setDesc("Default: 72")
+            .addText(text => text.setValue(`${this.plugin.settings.render_dpi}`).onChange((value) => {
+                this.plugin.settings.render_dpi = Number.parseInt(value);
+                this.plugin.saveData(this.plugin.settings);
+            }))
+
     }
 }

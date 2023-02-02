@@ -121,16 +121,33 @@ export default class BetterPDFPlugin extends Plugin {
 							console.log(canvas.clientWidth);
 						}).observe(canvas);
 
-						new IntersectionObserver(() => {
-							console.log(canvas.getBoundingClientRect())
+						let renderTask: pdfjs.RenderTask
+
+						new IntersectionObserver((changes, observer) => {
+							if (changes[0].isIntersecting) {
+								const renderContext = {
+									canvasContext: context,
+									viewport: viewport,
+									intent: "print"
+								};
+								this.pqueue.add(() => {
+									renderTask = page.render(renderContext)
+									return renderTask.promise.then(() => { renderTask = null; })
+								});
+
+							} else {
+								if (renderTask)
+									renderTask.cancel()
+								canvas.width = 0
+								canvas.height = 0
+
+								canvas.width = canvasWidth
+								canvas.height = canvasHeight
+
+
+							}
 						}).observe(canvas);
 
-						const renderContext = {
-							canvasContext: context,
-							viewport: viewport,
-							intent: "print"
-						};
-						await this.pqueue.add(() => page.render(renderContext).promise);
 
 					}
 				} catch (error) {

@@ -17,7 +17,20 @@ interface PdfNodeParameters {
 	rect: Array<number>;
 }
 
+class CanvasWithDisconnected extends HTMLCanvasElement {
+	static ID = "e10d176d-3a0d-456a-ada7-b7d178778f07";
+
+	constructor() {
+		super()
+	}
+
+	disconnectedCallback() {
+		this.dispatchEvent(new CustomEvent("disconnected"))
+	}
+}
+
 export default class BetterPDFPlugin extends Plugin {
+
 	settings: BetterPdfSettings;
 	documents: AsyncMap<string, pdfjs.PDFDocumentProxy>
 	pqueue: PQueue
@@ -28,8 +41,16 @@ export default class BetterPDFPlugin extends Plugin {
 		this.settings = Object.assign(new BetterPdfSettings(), await this.loadData());
 		this.addSettingTab(new BetterPdfSettingsTab(this.app, this));
 		this.documents = new AsyncMap()
+
+		if (!customElements.get(CanvasWithDisconnected.ID)) {
+			customElements.define(CanvasWithDisconnected.ID, CanvasWithDisconnected, { extends: "canvas" });
+		}
+
 		pdfjs.GlobalWorkerOptions.workerSrc = worker;
+		document.querySelector("div.view-content > div.canvas-wrapper")
+
 		this.registerMarkdownCodeBlockProcessor("pdf", async (src, el, ctx) => {
+
 			// Get Parameters
 			let parameters: PdfNodeParameters = null;
 			try {
@@ -79,59 +100,27 @@ export default class BetterPDFPlugin extends Plugin {
 							host = href;
 						}
 						// Render Canvas
-						const canvas = host.createEl("canvas");
-						if (parameters.fit) {
-							canvas.style.width = "100%";
-						}
+						const canvas = this.createCanvas(host, parameters);
 						if (canvas.clientWidth == 0) continue;
 
-						const pageViewport = page.getViewport({ scale: 1.0 });
-
-						const viewportWidth = Math.floor(pageViewport.width * parameters.rect[3]);
-						const viewportHeight = Math.floor(pageViewport.height * parameters.rect[2]);
-
-						const canvasWidth = viewportWidth * window.devicePixelRatio * PRINT_UNITS;
-						const canvasHeight = Math.floor(canvasWidth / viewportWidth * viewportHeight);
-
-						let baseScale = canvasWidth / viewportWidth;
-						// Get Viewport
-						const offsetX = Math.floor(
-							parameters.rect[0] * -1 * pageViewport.width * baseScale
-						);
-						const offsetY = Math.floor(
-							parameters.rect[1] * -1 * pageViewport.height * baseScale
-						);
-
-
+						const { canvasWidth, canvasHeight, viewport } = this.pageViewport(page, parameters, PRINT_UNITS);
 
 						const context = canvas.getContext("2d");
-
-						const viewport = page.getViewport({
-							scale: baseScale,
-							rotation: parameters.rotation,
-							offsetX: offsetX,
-							offsetY: offsetY,
-						});
 
 
 						canvas.width = canvasWidth;
 						canvas.height = canvasHeight;
 
-						new ResizeObserver(() => {
-							console.log(canvas.clientWidth);
-						}).observe(canvas);
-
 						let renderTask: pdfjs.RenderTask
 
-						new IntersectionObserver((changes, observer) => {
+						new IntersectionObserver((changes, _) => {
 							if (changes[0].isIntersecting) {
-								const renderContext = {
-									canvasContext: context,
-									viewport: viewport,
-									intent: "print"
-								};
 								this.pqueue.add(() => {
-									renderTask = page.render(renderContext)
+									renderTask = page.render({
+										canvasContext: context,
+										viewport: viewport,
+										intent: "print"
+									});
 									return renderTask.promise.then(() => { renderTask = null; })
 								});
 
@@ -147,14 +136,49 @@ export default class BetterPDFPlugin extends Plugin {
 
 							}
 						}).observe(canvas);
-
-
 					}
 				} catch (error) {
 					el.createEl("h2", { text: error });
 				}
 			}
 		});
+	}
+
+	private pageViewport(page, parameters: PdfNodeParameters, PRINT_UNITS: number) {
+		const pageViewport = page.getViewport({ scale: 1.0 });
+
+		const viewportWidth = Math.floor(pageViewport.width * parameters.rect[3]);
+		const viewportHeight = Math.floor(pageViewport.height * parameters.rect[2]);
+
+		const canvasWidth = viewportWidth * window.devicePixelRatio * PRINT_UNITS;
+		const canvasHeight = Math.floor(canvasWidth / viewportWidth * viewportHeight);
+
+		let baseScale = canvasWidth / viewportWidth;
+		// Get Viewport
+		const offsetX = Math.floor(
+			parameters.rect[0] * -1 * pageViewport.width * baseScale
+		);
+		const offsetY = Math.floor(
+			parameters.rect[1] * -1 * pageViewport.height * baseScale
+		);
+
+		const viewport = page.getViewport({
+			scale: baseScale,
+			rotation: parameters.rotation,
+			offsetX: offsetX,
+			offsetY: offsetY,
+		});
+		return { canvasWidth, canvasHeight, viewport };
+	}
+
+	private createCanvas(host: HTMLElement, parameters: PdfNodeParameters) {
+		const canvas = window.document.createElement("canvas", { is: CanvasWithDisconnected.ID }) as CanvasWithDisconnected;
+		host.appendChild(canvas);
+		canvas.style.backgroundColor = "white";
+		if (parameters.fit) {
+			canvas.style.width = "100%";
+		}
+		return canvas;
 	}
 
 	private readParameters(jsonString: string) {

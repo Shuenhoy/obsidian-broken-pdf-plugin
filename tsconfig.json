@@ -3,7 +3,7 @@
     "sourceMap": true,
     "inlineSources": true,
     "module": "ESNext",
-    "target": "es5",
+    "target": "es2021",
     "allowJs": true,
     "noImplicitAny": false,
     "moduleResolution": "node",
@@ -11,7 +11,6 @@
     "allowSyntheticDefaultImports": true,
     "lib": [
       "dom",
-      "es5",
       "scripthost",
       "es2021"
     ]

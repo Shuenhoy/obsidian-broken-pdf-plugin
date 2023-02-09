@@ -147,7 +147,6 @@ export default class BetterPDFPlugin extends Plugin {
 			zoom, page, viewport, baseScale, context, renderTask: null
 		}
 
-		resetCanvas();
 
 		const zoomContainer = document.querySelector("div.view-content > div.canvas-wrapper");
 		let zoomTimeout: number;
@@ -157,7 +156,6 @@ export default class BetterPDFPlugin extends Plugin {
 				const zoomLevel = calcZoomLevel();
 				if (zoomLevels[zoomLevel] != proxy.zoom) {
 					proxy.zoom = zoomLevels[zoomLevel];
-					resetCanvas();
 					this.submitRender(proxy);
 				}
 			}, 1000);
@@ -172,11 +170,11 @@ export default class BetterPDFPlugin extends Plugin {
 			} else {
 				if (proxy.renderTask)
 					proxy.renderTask.cancel();
-				resetCanvas();
+				resetCanvas(canvas);
 			}
 		}).observe(canvas);
 
-		function resetCanvas() {
+		function resetCanvas(canvas: HTMLCanvasElement) {
 			canvas.width = 0;
 			canvas.height = 0;
 
@@ -199,15 +197,31 @@ export default class BetterPDFPlugin extends Plugin {
 	}
 
 	private submitRender(proxy: PageRenderProxy) {
+		const canvas = window.document.createElement("canvas")
+		const context = canvas.getContext("2d");
+		canvas.width = proxy.canvasWidth * proxy.zoom;
+		canvas.height = proxy.canvasHeight * proxy.zoom;
+
 		this.pqueue.add(() => {
 			if (proxy.renderTask)
 				proxy.renderTask.cancel();
 			proxy.renderTask = proxy.page.render({
-				canvasContext: proxy.context,
+				canvasContext: context,
 				viewport: proxy.viewport,
 				transform: [proxy.baseScale * proxy.zoom, 0, 0, proxy.baseScale * proxy.zoom, 0, 0]
 			});
-			return proxy.renderTask.promise.then(() => { proxy.renderTask = null; }).catch(() => { proxy.renderTask = null; });
+			return proxy.renderTask.promise.then(() => {
+				proxy.canvas.width = 0;
+				proxy.canvas.height = 0;
+				proxy.canvas.width = Math.floor(proxy.canvasWidth * proxy.zoom);
+				proxy.canvas.height = Math.floor(proxy.canvasHeight * proxy.zoom);
+
+				proxy.context.drawImage(canvas, 0, 0);
+				canvas.width = 0
+				canvas.height = 0
+
+				proxy.renderTask = null;
+			}).catch(() => { proxy.renderTask = null; });
 		});
 	}
 

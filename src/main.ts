@@ -17,11 +17,12 @@ interface PdfNodeParameters {
 	rect: Array<number>;
 }
 
-class CanvasWithDisconnected extends HTMLCanvasElement {
+class DivWithDisconnected extends HTMLDivElement {
 	static ID = "e10d176d-3a0d-456a-ada7-b7d178778f07";
 
 	constructor() {
 		super()
+		this.style.width = "100%";
 	}
 
 	disconnectedCallback() {
@@ -36,14 +37,14 @@ export default class BetterPDFPlugin extends Plugin {
 	pqueue: PQueue
 	async onload() {
 		console.log("Better PDF loading...");
-		this.pqueue = new PQueue({ concurrency: 1 })
+		this.pqueue = new PQueue({ concurrency: 2 })
 
 		this.settings = Object.assign(new BetterPdfSettings(), await this.loadData());
 		this.addSettingTab(new BetterPdfSettingsTab(this.app, this));
 		this.documents = new AsyncMap()
 
-		if (!customElements.get(CanvasWithDisconnected.ID)) {
-			customElements.define(CanvasWithDisconnected.ID, CanvasWithDisconnected, { extends: "canvas" });
+		if (!customElements.get(DivWithDisconnected.ID)) {
+			customElements.define(DivWithDisconnected.ID, DivWithDisconnected, { extends: "div" });
 		}
 
 		pdfjs.GlobalWorkerOptions.workerSrc = worker;
@@ -100,48 +101,75 @@ export default class BetterPDFPlugin extends Plugin {
 							host = href;
 						}
 						// Render Canvas
-						const canvas = this.createCanvas(host, parameters);
-						if (canvas.clientWidth == 0) continue;
-
-						const { canvasWidth, canvasHeight, viewport } = this.pageViewport(page, parameters, PRINT_UNITS);
-
-						const context = canvas.getContext("2d");
-
-
-						canvas.width = canvasWidth;
-						canvas.height = canvasHeight;
-
-						let renderTask: pdfjs.RenderTask
-
-						new IntersectionObserver((changes, _) => {
-							if (changes[0].isIntersecting) {
-								this.pqueue.add(() => {
-									renderTask = page.render({
-										canvasContext: context,
-										viewport: viewport,
-										intent: "print"
-									});
-									return renderTask.promise.then(() => { renderTask = null; })
-								});
-
-							} else {
-								if (renderTask)
-									renderTask.cancel()
-								canvas.width = 0
-								canvas.height = 0
-
-								canvas.width = canvasWidth
-								canvas.height = canvasHeight
-
-
-							}
-						}).observe(canvas);
+						this.renderPage(host, parameters, page, PRINT_UNITS);
 					}
 				} catch (error) {
 					el.createEl("h2", { text: error });
 				}
 			}
 		});
+	}
+
+	private renderPage(host: HTMLElement, parameters: PdfNodeParameters, page: pdfjs.PDFPageProxy, PRINT_UNITS: number) {
+		const div = window.document.createElement("div", { is: DivWithDisconnected.ID }) as DivWithDisconnected;
+		host.appendChild(div);
+
+		const canvas = this.createCanvas(div, parameters);
+		if (canvas.clientWidth == 0) return;
+		const { canvasWidth, canvasHeight, viewport, baseScale } = this.pageViewport(page, parameters, PRINT_UNITS);
+		const zoomLevels = [0.05, 0.25, 0.5, 0.75, 1.0];
+		let zoomLevel = calcZoomLevel();
+		const zoom = zoomLevels[zoomLevel];
+
+
+		const context = canvas.getContext("2d");
+		console.log(`zoom level ${zoom}`)
+
+		resetCanvas();
+		let renderTask: pdfjs.RenderTask;
+
+		new IntersectionObserver((changes, _) => {
+			if (changes[0].isIntersecting) {
+				this.pqueue.add(() => {
+					renderTask = page.render({
+						canvasContext: context,
+						viewport: viewport,
+						intent: "print",
+						transform: [baseScale * zoom, 0, 0, baseScale * zoom, 0, 0]
+					});
+					return renderTask.promise.then(() => { renderTask = null; });
+				});
+
+			} else {
+				if (renderTask)
+					renderTask.cancel();
+				resetCanvas();
+
+
+			}
+
+		}).observe(canvas);
+
+		function resetCanvas() {
+			canvas.width = 0;
+			canvas.height = 0;
+
+			canvas.width = Math.floor(canvasWidth * zoom);
+			canvas.height = Math.floor(canvasHeight * zoom);
+		}
+
+		function calcZoomLevel() {
+			let zoomLevel = 4;
+			const realWidth = canvas.getBoundingClientRect().width;
+			const ratio = realWidth / canvasWidth;
+			for (let i = 0; i < zoomLevels.length; i++) {
+				if (ratio <= zoomLevels[i]) {
+					zoomLevel = i;
+					break;
+				}
+			}
+			return zoomLevel;
+		}
 	}
 
 	private pageViewport(page, parameters: PdfNodeParameters, PRINT_UNITS: number) {
@@ -156,24 +184,23 @@ export default class BetterPDFPlugin extends Plugin {
 		let baseScale = canvasWidth / viewportWidth;
 		// Get Viewport
 		const offsetX = Math.floor(
-			parameters.rect[0] * -1 * pageViewport.width * baseScale
+			parameters.rect[0] * -1 * pageViewport.width
 		);
 		const offsetY = Math.floor(
-			parameters.rect[1] * -1 * pageViewport.height * baseScale
+			parameters.rect[1] * -1 * pageViewport.height
 		);
 
 		const viewport = page.getViewport({
-			scale: baseScale,
+			scale: 1,
 			rotation: parameters.rotation,
 			offsetX: offsetX,
 			offsetY: offsetY,
 		});
-		return { canvasWidth, canvasHeight, viewport };
+		return { canvasWidth, canvasHeight, viewport, baseScale };
 	}
 
 	private createCanvas(host: HTMLElement, parameters: PdfNodeParameters) {
-		const canvas = window.document.createElement("canvas", { is: CanvasWithDisconnected.ID }) as CanvasWithDisconnected;
-		host.appendChild(canvas);
+		const canvas = host.createEl("canvas")
 		canvas.style.backgroundColor = "white";
 		if (parameters.fit) {
 			canvas.style.width = "100%";

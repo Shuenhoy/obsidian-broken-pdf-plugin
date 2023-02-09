@@ -1,4 +1,4 @@
-import { Plugin, Plugin_2, TFile, normalizePath, FileSystemAdapter } from "obsidian";
+import { Plugin } from "obsidian";
 import { BetterPdfSettings, BetterPdfSettingsTab } from "./settings";
 import * as pdfjs from "pdfjs-dist";
 import worker from "pdfjs-dist/build/pdf.worker.min.js";
@@ -51,7 +51,7 @@ export default class BetterPDFPlugin extends Plugin {
 
 	async onload() {
 		console.log("Better PDF loading...");
-		this.pqueue = new PQueue({ concurrency: 2 })
+		this.pqueue = new PQueue({ concurrency: 1 })
 
 		this.settings = Object.assign(new BetterPdfSettings(), await this.loadData());
 		this.addSettingTab(new BetterPdfSettingsTab(this.app, this));
@@ -125,7 +125,6 @@ export default class BetterPDFPlugin extends Plugin {
 
 	private renderPage(host: HTMLElement, parameters: PdfNodeParameters, page: pdfjs.PDFPageProxy, PRINT_UNITS: number) {
 		const div = window.document.createElement("div", { is: DivWithDisconnected.ID }) as DivWithDisconnected;
-		div.addEventListener("disconnected", () => console.log("disconnected"))
 		host.appendChild(div);
 
 		const canvas = this.createCanvas(div, parameters);
@@ -149,18 +148,15 @@ export default class BetterPDFPlugin extends Plugin {
 
 
 		const zoomContainer = document.querySelector("div.view-content > div.canvas-wrapper");
-		let zoomTimeout: number;
 		const resizer = () => {
-			clearTimeout(zoomTimeout);
-			zoomTimeout = window.setTimeout(() => {
-				const zoomLevel = calcZoomLevel();
-				if (zoomLevels[zoomLevel] != proxy.zoom) {
-					proxy.zoom = zoomLevels[zoomLevel];
-					this.submitRender(proxy);
-				}
-			}, 1000);
+			const zoomLevel = calcZoomLevel();
+			if (zoomLevels[zoomLevel] != proxy.zoom) {
+				proxy.zoom = zoomLevels[zoomLevel];
+				this.submitRender(proxy);
+			}
 
 		};
+		resetCanvas();
 		new MutationObserver(resizer).observe(zoomContainer, { attributes: true, attributeFilter: ["style"] });
 		new ResizeObserver(resizer).observe(canvas);
 		new IntersectionObserver((changes, _) => {
@@ -170,11 +166,11 @@ export default class BetterPDFPlugin extends Plugin {
 			} else {
 				if (proxy.renderTask)
 					proxy.renderTask.cancel();
-				resetCanvas(canvas);
+				resetCanvas();
 			}
-		}).observe(canvas);
+		}, { rootMargin: '50%' }).observe(canvas);
 
-		function resetCanvas(canvas: HTMLCanvasElement) {
+		function resetCanvas() {
 			canvas.width = 0;
 			canvas.height = 0;
 
@@ -199,28 +195,32 @@ export default class BetterPDFPlugin extends Plugin {
 	private submitRender(proxy: PageRenderProxy) {
 		const canvas = window.document.createElement("canvas")
 		const context = canvas.getContext("2d");
-		canvas.width = proxy.canvasWidth * proxy.zoom;
-		canvas.height = proxy.canvasHeight * proxy.zoom;
+		const zoom = proxy.zoom
+		canvas.width = proxy.canvasWidth * zoom;
+		canvas.height = proxy.canvasHeight * zoom;
 
 		this.pqueue.add(() => {
 			if (proxy.renderTask)
 				proxy.renderTask.cancel();
+
 			proxy.renderTask = proxy.page.render({
 				canvasContext: context,
 				viewport: proxy.viewport,
-				transform: [proxy.baseScale * proxy.zoom, 0, 0, proxy.baseScale * proxy.zoom, 0, 0]
+				transform: [proxy.baseScale * zoom, 0, 0, proxy.baseScale * zoom, 0, 0]
 			});
 			return proxy.renderTask.promise.then(() => {
 				proxy.canvas.width = 0;
 				proxy.canvas.height = 0;
-				proxy.canvas.width = Math.floor(proxy.canvasWidth * proxy.zoom);
-				proxy.canvas.height = Math.floor(proxy.canvasHeight * proxy.zoom);
+				proxy.canvas.width = Math.floor(proxy.canvasWidth * zoom);
+				proxy.canvas.height = Math.floor(proxy.canvasHeight * zoom);
 
 				proxy.context.drawImage(canvas, 0, 0);
 				canvas.width = 0
 				canvas.height = 0
 
 				proxy.renderTask = null;
+				console.log(`done timestamp: ${new Date()} ${proxy.page.pageNumber}`)
+
 			}).catch(() => { proxy.renderTask = null; });
 		});
 	}

@@ -8,6 +8,7 @@ export class BetterPdfSettings {
     fit_by_default: boolean = true;
     link_by_default: boolean = true;
     render_dpi: number = 72;
+    cocurrency: number = 2;
 }
 
 export class BetterPdfSettingsTab extends PluginSettingTab {
@@ -47,7 +48,14 @@ export class BetterPdfSettingsTab extends PluginSettingTab {
             .addText(text => text.setValue(`${this.plugin.settings.render_dpi}`).onChange((value) => {
                 this.plugin.settings.render_dpi = Number.parseInt(value);
                 this.plugin.saveData(this.plugin.settings);
-            }))
+            }));
 
+        new Setting(containerEl)
+            .setName("Cocurrency")
+            .setDesc("Default: 2")
+            .addText(text => text.setValue(`${this.plugin.settings.cocurrency}`).onChange((value) => {
+                this.plugin.settings.cocurrency = Number.parseInt(value);
+                this.plugin.saveData(this.plugin.settings);
+            }));
     }
 }

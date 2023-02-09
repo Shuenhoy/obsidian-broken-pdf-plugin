@@ -51,9 +51,10 @@ export default class BetterPDFPlugin extends Plugin {
 
 	async onload() {
 		console.log("Better PDF loading...");
-		this.pqueue = new PQueue({ concurrency: 1 })
 
 		this.settings = Object.assign(new BetterPdfSettings(), await this.loadData());
+		this.pqueue = new PQueue({ concurrency: this.settings.cocurrency });
+
 		this.addSettingTab(new BetterPdfSettingsTab(this.app, this));
 		this.documents = new AsyncMap();
 
@@ -146,6 +147,10 @@ export default class BetterPDFPlugin extends Plugin {
 			zoom, page, viewport, baseScale, context, renderTask: null
 		}
 
+		div.addEventListener("disconnect", () => {
+			proxy.canvas.width = 0;
+			proxy.canvas.height = 0;
+		})
 
 		const zoomContainer = document.querySelector("div.view-content > div.canvas-wrapper");
 		const resizer = () => {

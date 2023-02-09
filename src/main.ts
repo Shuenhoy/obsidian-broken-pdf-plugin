@@ -30,6 +30,19 @@ class DivWithDisconnected extends HTMLDivElement {
 	}
 }
 
+interface PageRenderProxy {
+	container: DivWithDisconnected
+	canvas: HTMLCanvasElement
+	context: CanvasRenderingContext2D
+	page: pdfjs.PDFPageProxy
+	viewport: pdfjs.PageViewport
+	zoom: number
+	canvasWidth: number
+	canvasHeight: number
+	baseScale: number
+	renderTask?: pdfjs.RenderTask
+}
+
 export default class BetterPDFPlugin extends Plugin {
 
 	settings: BetterPdfSettings;
@@ -120,29 +133,25 @@ export default class BetterPDFPlugin extends Plugin {
 		const zoomLevels = [0.05, 0.25, 0.5, 0.75, 1.0];
 		let zoomLevel = calcZoomLevel();
 		const zoom = zoomLevels[zoomLevel];
-
-
 		const context = canvas.getContext("2d");
-		console.log(`zoom level ${zoom}`)
+
+		const proxy: PageRenderProxy = {
+			container: div,
+			canvas,
+			canvasWidth,
+			canvasHeight,
+			zoom, page, viewport, baseScale, context, renderTask: null
+		}
 
 		resetCanvas();
-		let renderTask: pdfjs.RenderTask;
 
 		new IntersectionObserver((changes, _) => {
 			if (changes[0].isIntersecting) {
-				this.pqueue.add(() => {
-					renderTask = page.render({
-						canvasContext: context,
-						viewport: viewport,
-						intent: "print",
-						transform: [baseScale * zoom, 0, 0, baseScale * zoom, 0, 0]
-					});
-					return renderTask.promise.then(() => { renderTask = null; });
-				});
+				this.submitRender(proxy);
 
 			} else {
-				if (renderTask)
-					renderTask.cancel();
+				if (proxy.renderTask)
+					proxy.renderTask.cancel();
 				resetCanvas();
 
 
@@ -172,7 +181,18 @@ export default class BetterPDFPlugin extends Plugin {
 		}
 	}
 
-	private pageViewport(page, parameters: PdfNodeParameters, PRINT_UNITS: number) {
+	private submitRender(proxy: PageRenderProxy) {
+		this.pqueue.add(() => {
+			proxy.renderTask = proxy.page.render({
+				canvasContext: proxy.context,
+				viewport: proxy.viewport,
+				transform: [proxy.baseScale * proxy.zoom, 0, 0, proxy.baseScale * proxy.zoom, 0, 0]
+			});
+			return proxy.renderTask.promise.then(() => { proxy.renderTask = null; });
+		});
+	}
+
+	private pageViewport(page: pdfjs.PDFPageProxy, parameters: PdfNodeParameters, PRINT_UNITS: number) {
 		const pageViewport = page.getViewport({ scale: 1.0 });
 
 		const viewportWidth = Math.floor(pageViewport.width * parameters.rect[3]);

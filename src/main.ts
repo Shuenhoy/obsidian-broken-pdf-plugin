@@ -48,20 +48,20 @@ export default class BetterPDFPlugin extends Plugin {
 	settings: BetterPdfSettings;
 	documents: AsyncMap<string, pdfjs.PDFDocumentProxy>
 	pqueue: PQueue
+
 	async onload() {
 		console.log("Better PDF loading...");
 		this.pqueue = new PQueue({ concurrency: 2 })
 
 		this.settings = Object.assign(new BetterPdfSettings(), await this.loadData());
 		this.addSettingTab(new BetterPdfSettingsTab(this.app, this));
-		this.documents = new AsyncMap()
+		this.documents = new AsyncMap();
 
 		if (!customElements.get(DivWithDisconnected.ID)) {
 			customElements.define(DivWithDisconnected.ID, DivWithDisconnected, { extends: "div" });
 		}
 
 		pdfjs.GlobalWorkerOptions.workerSrc = worker;
-		document.querySelector("div.view-content > div.canvas-wrapper")
 
 		this.registerMarkdownCodeBlockProcessor("pdf", async (src, el, ctx) => {
 
@@ -125,12 +125,16 @@ export default class BetterPDFPlugin extends Plugin {
 
 	private renderPage(host: HTMLElement, parameters: PdfNodeParameters, page: pdfjs.PDFPageProxy, PRINT_UNITS: number) {
 		const div = window.document.createElement("div", { is: DivWithDisconnected.ID }) as DivWithDisconnected;
+		div.addEventListener("disconnected", () => console.log("disconnected"))
 		host.appendChild(div);
 
 		const canvas = this.createCanvas(div, parameters);
 		if (canvas.clientWidth == 0) return;
 		const { canvasWidth, canvasHeight, viewport, baseScale } = this.pageViewport(page, parameters, PRINT_UNITS);
-		const zoomLevels = [0.05, 0.25, 0.5, 0.75, 1.0];
+
+		const zoomLevels = [0.01, 0.25, 0.5, 0.75, 1.0];
+		const zoomLevelSeps = [0.1, 0.35, 0.6, 0.85, 1.0];
+
 		let zoomLevel = calcZoomLevel();
 		const zoom = zoomLevels[zoomLevel];
 		const context = canvas.getContext("2d");
@@ -145,6 +149,22 @@ export default class BetterPDFPlugin extends Plugin {
 
 		resetCanvas();
 
+		const zoomContainer = document.querySelector("div.view-content > div.canvas-wrapper");
+		let zoomTimeout: number;
+		const resizer = () => {
+			clearTimeout(zoomTimeout);
+			zoomTimeout = window.setTimeout(() => {
+				const zoomLevel = calcZoomLevel();
+				if (zoomLevels[zoomLevel] != proxy.zoom) {
+					proxy.zoom = zoomLevels[zoomLevel];
+					resetCanvas();
+					this.submitRender(proxy);
+				}
+			}, 1000);
+
+		};
+		new MutationObserver(resizer).observe(zoomContainer, { attributes: true, attributeFilter: ["style"] });
+		new ResizeObserver(resizer).observe(canvas);
 		new IntersectionObserver((changes, _) => {
 			if (changes[0].isIntersecting) {
 				this.submitRender(proxy);
@@ -153,18 +173,15 @@ export default class BetterPDFPlugin extends Plugin {
 				if (proxy.renderTask)
 					proxy.renderTask.cancel();
 				resetCanvas();
-
-
 			}
-
 		}).observe(canvas);
 
 		function resetCanvas() {
 			canvas.width = 0;
 			canvas.height = 0;
 
-			canvas.width = Math.floor(canvasWidth * zoom);
-			canvas.height = Math.floor(canvasHeight * zoom);
+			canvas.width = Math.floor(canvasWidth * proxy.zoom);
+			canvas.height = Math.floor(canvasHeight * proxy.zoom);
 		}
 
 		function calcZoomLevel() {
@@ -172,7 +189,7 @@ export default class BetterPDFPlugin extends Plugin {
 			const realWidth = canvas.getBoundingClientRect().width;
 			const ratio = realWidth / canvasWidth;
 			for (let i = 0; i < zoomLevels.length; i++) {
-				if (ratio <= zoomLevels[i]) {
+				if (ratio <= zoomLevelSeps[i]) {
 					zoomLevel = i;
 					break;
 				}
@@ -183,12 +200,14 @@ export default class BetterPDFPlugin extends Plugin {
 
 	private submitRender(proxy: PageRenderProxy) {
 		this.pqueue.add(() => {
+			if (proxy.renderTask)
+				proxy.renderTask.cancel();
 			proxy.renderTask = proxy.page.render({
 				canvasContext: proxy.context,
 				viewport: proxy.viewport,
 				transform: [proxy.baseScale * proxy.zoom, 0, 0, proxy.baseScale * proxy.zoom, 0, 0]
 			});
-			return proxy.renderTask.promise.then(() => { proxy.renderTask = null; });
+			return proxy.renderTask.promise.then(() => { proxy.renderTask = null; }).catch(() => { proxy.renderTask = null; });
 		});
 	}
 
@@ -289,5 +308,6 @@ export default class BetterPDFPlugin extends Plugin {
 
 	onunload() {
 		console.log("unloading Better PDF plugin...");
+		this.documents.map.clear();
 	}
 }

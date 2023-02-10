@@ -162,8 +162,10 @@ export default class BetterPDFPlugin extends Plugin {
 
 		};
 		resetCanvas();
-		new MutationObserver(resizer).observe(zoomContainer, { attributes: true, attributeFilter: ["style"] });
-		new ResizeObserver(resizer).observe(canvas);
+		if (zoomContainer) {
+			new MutationObserver(resizer).observe(zoomContainer, { attributes: true, attributeFilter: ["style"] });
+			new ResizeObserver(resizer).observe(canvas);
+		}
 		new IntersectionObserver((changes, _) => {
 			if (changes[0].isIntersecting) {
 				this.submitRender(proxy);
@@ -173,7 +175,7 @@ export default class BetterPDFPlugin extends Plugin {
 					proxy.renderTask.cancel();
 				resetCanvas();
 			}
-		}, { rootMargin: '50%' }).observe(canvas);
+		}, { rootMargin: '50%' }).observe(canvas); // the rootMargin here does not work
 
 		function resetCanvas() {
 			canvas.width = 0;
@@ -224,7 +226,6 @@ export default class BetterPDFPlugin extends Plugin {
 				canvas.height = 0
 
 				proxy.renderTask = null;
-				console.log(`done timestamp: ${new Date()} ${proxy.page.pageNumber}`)
 
 			}).catch(() => { proxy.renderTask = null; });
 		});

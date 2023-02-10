@@ -5,6 +5,7 @@ import worker from "pdfjs-dist/build/pdf.worker.min.js";
 
 import AsyncLRU from "./asyncMap";
 import PQueue from 'p-queue';
+import hash from "object-hash"
 
 import { readBinary } from "./helper";
 interface PdfNodeParameters {
@@ -33,20 +34,18 @@ class DivWithDisconnected extends HTMLDivElement {
 interface PageRenderProxy {
 	container: DivWithDisconnected
 	canvas: HTMLCanvasElement
-	context: CanvasRenderingContext2D
 	page: pdfjs.PDFPageProxy
 	viewport: pdfjs.PageViewport
-	zoom: number
 	canvasWidth: number
 	canvasHeight: number
 	baseScale: number
-	renderTask?: pdfjs.RenderTask
 }
 
 export default class BetterPDFPlugin extends Plugin {
 
 	settings: BetterPdfSettings;
 	documents: AsyncLRU<string, pdfjs.PDFDocumentProxy>
+	renderProxies: AsyncLRU<string, PageRenderProxy>
 	pqueue: PQueue
 
 	async onload() {
@@ -57,6 +56,7 @@ export default class BetterPDFPlugin extends Plugin {
 
 		this.addSettingTab(new BetterPdfSettingsTab(this.app, this));
 		this.documents = new AsyncLRU({ max: this.settings.max_cached_opened_files });
+		this.renderProxies = new AsyncLRU({ max: 10 });
 
 		if (!customElements.get(DivWithDisconnected.ID)) {
 			customElements.define(DivWithDisconnected.ID, DivWithDisconnected, { extends: "div" });
@@ -115,7 +115,7 @@ export default class BetterPDFPlugin extends Plugin {
 							host = href;
 						}
 						// Render Canvas
-						this.renderPage(host, parameters, page, PRINT_UNITS);
+						await this.renderPage(host, parameters, page, PRINT_UNITS);
 					}
 				} catch (error) {
 					el.createEl("h2", { text: error });
@@ -124,68 +124,113 @@ export default class BetterPDFPlugin extends Plugin {
 		});
 	}
 
-	private renderPage(host: HTMLElement, parameters: PdfNodeParameters, page: pdfjs.PDFPageProxy, PRINT_UNITS: number) {
+	private async renderPage(host: HTMLElement, parameters: PdfNodeParameters, page: pdfjs.PDFPageProxy, PRINT_UNITS: number) {
 		const div = window.document.createElement("div", { is: DivWithDisconnected.ID }) as DivWithDisconnected;
+		const self = this;
 		host.appendChild(div);
-
-		const canvas = this.createCanvas(div, parameters);
-		if (canvas.clientWidth == 0) return;
-		const { canvasWidth, canvasHeight, viewport, baseScale } = this.pageViewport(page, parameters, PRINT_UNITS);
 
 		const zoomLevels = [0.01, 0.25, 0.5, 0.75, 1.0];
 		const zoomLevelSeps = [0.1, 0.35, 0.6, 0.85, 1.0];
+		const blockHash = hash([parameters.url, parameters.rect, parameters.rotation, page.pageNumber]);
 
-		let zoomLevel = calcZoomLevel();
-		const zoom = zoomLevels[zoomLevel];
-		const context = canvas.getContext("2d");
+		if (div.clientWidth == 0) return;
 
-		const proxy: PageRenderProxy = {
-			container: div,
-			canvas,
-			canvasWidth,
-			canvasHeight,
-			zoom, page, viewport, baseScale, context, renderTask: null
-		}
-
-		div.addEventListener("disconnect", () => {
-			proxy.canvas.width = 0;
-			proxy.canvas.height = 0;
-		})
 
 		const zoomContainer = host.closest("div.view-content > div.canvas-wrapper");
-		const resizer = () => {
-			const zoomLevel = calcZoomLevel();
-			if (zoomLevels[zoomLevel] != proxy.zoom) {
-				proxy.zoom = zoomLevels[zoomLevel];
-				this.submitRender(proxy);
-			}
 
-		};
-		resetCanvas();
-		if (zoomContainer) {
-			new MutationObserver(resizer).observe(zoomContainer, { attributes: true, attributeFilter: ["style"] });
-			new ResizeObserver(resizer).observe(canvas);
-		}
-		new IntersectionObserver((changes, _) => {
+		let mutation: MutationObserver = null;
+		let resize: ResizeObserver = null;
+		let proxy: PageRenderProxy = await getProxy();
+		let canvas: HTMLCanvasElement = this.createCanvas(parameters);
+		let renderTask: pdfjs.RenderTask
+		let zoom = 1.0;
+
+		canvas.width = proxy.canvasWidth;
+		canvas.height = proxy.canvasHeight;
+		div.appendChild(canvas);
+		proxy = null;
+
+		const intersection = new IntersectionObserver(async (changes, _) => {
 			if (changes[0].isIntersecting) {
-				this.submitRender(proxy);
+				proxy = await getProxy();
+
+				const resizer = async () => {
+					if (canvas.clientWidth == 0) return;
+					const zoomLevel = calcZoomLevel(proxy.canvasWidth, canvas);
+					if (zoomLevels[zoomLevel] != zoom) {
+						zoom = zoomLevels[zoomLevel];
+
+						if (renderTask)
+							renderTask.cancel();
+						const [task, render] = await this.submitRender(proxy, zoom, canvas);
+						renderTask = task;
+						await render.finally(() => { renderTask = null; });
+						if (proxy)
+							this.copyCanvas(canvas, proxy.canvas);
+					}
+
+				};
+				if (zoomContainer) {
+					mutation = new MutationObserver(resizer); mutation.observe(zoomContainer, { attributes: true, attributeFilter: ["style"] });
+					resize = new ResizeObserver(resizer); resize.observe(div);
+				}
+
+				this.copyCanvas(proxy.canvas, canvas);
+				const zoomLevel = calcZoomLevel(proxy.canvasWidth, canvas);
+				zoom = zoomLevels[zoomLevel];
+
+
+				if (renderTask)
+					renderTask.cancel();
+				const [task, render] = await this.submitRender(proxy, zoom, canvas);
+				renderTask = task;
+				await render.finally(() => { renderTask = null; });
+
+				this.copyCanvas(canvas, proxy.canvas);
 
 			} else {
-				if (proxy.renderTask)
-					proxy.renderTask.cancel();
-				resetCanvas();
+				if (renderTask)
+					renderTask.cancel();
+				if (mutation) mutation.disconnect();
+				if (resize) resize.disconnect();
+				if (canvas) {
+					resetCanvas(canvas, proxy.canvasWidth, proxy.canvasHeight, zoom);
+				}
+				proxy = null;
 			}
-		}, { rootMargin: '50%' }).observe(canvas); // the rootMargin here does not work
+		}, { rootMargin: '50%' });
+		intersection.observe(div); // the rootMargin here does not work
 
-		function resetCanvas() {
-			canvas.width = 0;
-			canvas.height = 0;
 
-			canvas.width = Math.floor(canvasWidth * proxy.zoom);
-			canvas.height = Math.floor(canvasHeight * proxy.zoom);
+
+
+		async function getProxy() {
+			return await self.renderProxies.getOrSetAsync(blockHash, async () => {
+				const canvas = self.createCanvas(parameters);
+				const { canvasWidth, canvasHeight, viewport, baseScale } = self.pageViewport(page, parameters, PRINT_UNITS);
+
+				let zoomLevel = calcZoomLevel(canvasWidth, canvas);
+				const zoom = zoomLevels[zoomLevel];
+				resetCanvas(canvas, canvasWidth, canvasHeight, zoom);
+				const proxy: PageRenderProxy = {
+					container: div,
+					canvas,
+					canvasWidth,
+					canvasHeight,
+					page, viewport, baseScale
+				};
+				return proxy;
+			});
 		}
 
-		function calcZoomLevel() {
+		function resetCanvas(canvas: HTMLCanvasElement, canvasWidth: number, canvasHeight: number, zoom: number) {
+			canvas.width = 0;
+			canvas.height = 0;
+			canvas.width = Math.floor(canvasWidth * zoom);
+			canvas.height = Math.floor(canvasHeight * zoom);
+		}
+
+		function calcZoomLevel(canvasWidth: number, canvas: HTMLCanvasElement) {
 			let zoomLevel = 4;
 			const realWidth = canvas.getBoundingClientRect().width;
 			const ratio = realWidth / canvasWidth;
@@ -199,35 +244,27 @@ export default class BetterPDFPlugin extends Plugin {
 		}
 	}
 
-	private submitRender(proxy: PageRenderProxy) {
+	private submitRender(proxy: PageRenderProxy, zoom: number, target: HTMLCanvasElement) {
 		const canvas = window.document.createElement("canvas")
 		const context = canvas.getContext("2d");
-		const zoom = proxy.zoom
 		canvas.width = proxy.canvasWidth * zoom;
 		canvas.height = proxy.canvasHeight * zoom;
 
-		this.pqueue.add(() => {
-			if (proxy.renderTask)
-				proxy.renderTask.cancel();
+		return this.pqueue.add(() => {
 
-			proxy.renderTask = proxy.page.render({
+			const renderTask = proxy.page.render({
 				canvasContext: context,
 				viewport: proxy.viewport,
 				transform: [proxy.baseScale * zoom, 0, 0, proxy.baseScale * zoom, 0, 0]
 			});
-			return proxy.renderTask.promise.then(() => {
-				proxy.canvas.width = 0;
-				proxy.canvas.height = 0;
-				proxy.canvas.width = Math.floor(proxy.canvasWidth * zoom);
-				proxy.canvas.height = Math.floor(proxy.canvasHeight * zoom);
+			return [renderTask, renderTask.promise.then(() => {
+				target.width = Math.floor(proxy.canvasWidth * zoom);
+				target.height = Math.floor(proxy.canvasHeight * zoom);
 
-				proxy.context.drawImage(canvas, 0, 0);
+				target.getContext("2d").drawImage(canvas, 0, 0);
 				canvas.width = 0
 				canvas.height = 0
-
-				proxy.renderTask = null;
-
-			}).catch(() => { proxy.renderTask = null; });
+			})] as const;
 		});
 	}
 
@@ -258,13 +295,28 @@ export default class BetterPDFPlugin extends Plugin {
 		return { canvasWidth, canvasHeight, viewport, baseScale };
 	}
 
-	private createCanvas(host: HTMLElement, parameters: PdfNodeParameters) {
-		const canvas = host.createEl("canvas")
+	private createCanvas(parameters: PdfNodeParameters) {
+		const canvas = document.createElement("canvas")
 		canvas.style.backgroundColor = "white";
 		if (parameters.fit) {
 			canvas.style.width = "100%";
 		}
 		return canvas;
+	}
+	private copyCanvas(oldCanvas: HTMLCanvasElement, targetCanvas: HTMLCanvasElement) {
+		const context = targetCanvas.getContext("2d");
+		targetCanvas.width = oldCanvas.width;
+		targetCanvas.height = oldCanvas.height;
+		context.drawImage(oldCanvas, 0, 0);
+	}
+
+	private cloneCanvas(oldCanvas: HTMLCanvasElement, parameters: PdfNodeParameters) {
+		const newCanvas = this.createCanvas(parameters);
+		const context = newCanvas.getContext("2d");
+		newCanvas.width = oldCanvas.width;
+		newCanvas.height = oldCanvas.height;
+		context.drawImage(oldCanvas, 0, 0);
+		return newCanvas;
 	}
 
 	private readParameters(jsonString: string) {

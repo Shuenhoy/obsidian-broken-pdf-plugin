@@ -8,7 +8,8 @@ export class BetterPdfSettings {
     fit_by_default: boolean = true;
     link_by_default: boolean = true;
     render_dpi: number = 72;
-    cocurrency: number = 2;
+    cocurrency: number = 4;
+    max_cached_opened_files: number = 10;
 }
 
 export class BetterPdfSettingsTab extends PluginSettingTab {
@@ -51,10 +52,18 @@ export class BetterPdfSettingsTab extends PluginSettingTab {
             }));
 
         new Setting(containerEl)
-            .setName("Cocurrency")
-            .setDesc("Default: 2")
+            .setName("Cocurrency for rendering")
+            .setDesc("Default: 4")
             .addText(text => text.setValue(`${this.plugin.settings.cocurrency}`).onChange((value) => {
                 this.plugin.settings.cocurrency = Number.parseInt(value);
+                this.plugin.saveData(this.plugin.settings);
+            }));
+
+        new Setting(containerEl)
+            .setName("Max cached opened files")
+            .setDesc("Default: 10. You need to reload this plugin to apply this setting.")
+            .addText(text => text.setValue(`${this.plugin.settings.max_cached_opened_files}`).onChange((value) => {
+                this.plugin.settings.max_cached_opened_files = Number.parseInt(value);
                 this.plugin.saveData(this.plugin.settings);
             }));
     }

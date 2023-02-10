@@ -1,8 +1,10 @@
-export default class AsyncMap<K, V> {
-    map: Map<K, V>
+import LRU from "lru-cache"
+
+export default class AsyncLRU<K, V> {
+    map: LRU<K, V>
     promises: Map<K, Promise<V>>
-    constructor() {
-        this.map = new Map();
+    constructor(options: LRU.Options<K, V>) {
+        this.map = new LRU(options);
         this.promises = new Map();
     }
 

@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "canvas": "^2.6.1",
+    "lru-cache": "^7.14.1",
     "p-queue": "^7.3.0",
     "pdfjs-dist": "^3.3.122"
   }

@@ -3,7 +3,7 @@ import { BetterPdfSettings, BetterPdfSettingsTab } from "./settings";
 import * as pdfjs from "pdfjs-dist";
 import worker from "pdfjs-dist/build/pdf.worker.min.js";
 
-import AsyncMap from "./asyncMap";
+import AsyncLRU from "./asyncMap";
 import PQueue from 'p-queue';
 
 import { readBinary } from "./helper";
@@ -46,7 +46,7 @@ interface PageRenderProxy {
 export default class BetterPDFPlugin extends Plugin {
 
 	settings: BetterPdfSettings;
-	documents: AsyncMap<string, pdfjs.PDFDocumentProxy>
+	documents: AsyncLRU<string, pdfjs.PDFDocumentProxy>
 	pqueue: PQueue
 
 	async onload() {
@@ -56,7 +56,7 @@ export default class BetterPDFPlugin extends Plugin {
 		this.pqueue = new PQueue({ concurrency: this.settings.cocurrency });
 
 		this.addSettingTab(new BetterPdfSettingsTab(this.app, this));
-		this.documents = new AsyncMap();
+		this.documents = new AsyncLRU({ max: this.settings.max_cached_opened_files });
 
 		if (!customElements.get(DivWithDisconnected.ID)) {
 			customElements.define(DivWithDisconnected.ID, DivWithDisconnected, { extends: "div" });

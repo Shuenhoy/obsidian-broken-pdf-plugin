@@ -152,7 +152,7 @@ export default class BetterPDFPlugin extends Plugin {
 			proxy.canvas.height = 0;
 		})
 
-		const zoomContainer = document.querySelector("div.view-content > div.canvas-wrapper");
+		const zoomContainer = host.closest("div.view-content > div.canvas-wrapper");
 		const resizer = () => {
 			const zoomLevel = calcZoomLevel();
 			if (zoomLevels[zoomLevel] != proxy.zoom) {

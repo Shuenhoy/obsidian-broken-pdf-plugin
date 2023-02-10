@@ -36,6 +36,7 @@ interface PageRenderProxy {
 	canvas: HTMLCanvasElement
 	page: pdfjs.PDFPageProxy
 	viewport: pdfjs.PageViewport
+	zoom: number
 	canvasWidth: number
 	canvasHeight: number
 	baseScale: number
@@ -77,7 +78,6 @@ export default class BetterPDFPlugin extends Plugin {
 			const PRINT_UNITS = PRINT_RESOLUTION / 72.0;
 			//Create PDF Node
 			if (parameters !== null) {
-				// console.log("Creating PDF Node with parameters: ", parameters);
 				try {
 					if (parameters.url.startsWith("./")) {
 						// find the substring of path all the way to the last slash
@@ -131,62 +131,52 @@ export default class BetterPDFPlugin extends Plugin {
 
 		const zoomLevels = [0.01, 0.25, 0.5, 0.75, 1.0];
 		const zoomLevelSeps = [0.1, 0.35, 0.6, 0.85, 1.0];
-		const blockHash = hash([parameters.url, parameters.rect, parameters.rotation, page.pageNumber]);
 
 		if (div.clientWidth == 0) return;
 
 
 		const zoomContainer = host.closest("div.view-content > div.canvas-wrapper");
+		const { canvasWidth, canvasHeight, viewport, baseScale } = self.pageViewport(page, parameters, PRINT_UNITS);
 
 		let mutation: MutationObserver = null;
 		let resize: ResizeObserver = null;
-		let proxy: PageRenderProxy = await getProxy();
+		let proxy: PageRenderProxy = null;
 		let canvas: HTMLCanvasElement = this.createCanvas(parameters);
 		let renderTask: pdfjs.RenderTask
 		let zoom = 1.0;
 
-		canvas.width = proxy.canvasWidth;
-		canvas.height = proxy.canvasHeight;
+		canvas.width = canvasWidth;
+		canvas.height = canvasHeight;
 		div.appendChild(canvas);
-		proxy = null;
 
-		const intersection = new IntersectionObserver(async (changes, _) => {
-			if (changes[0].isIntersecting) {
-				proxy = await getProxy();
-
-				const resizer = async () => {
-					if (canvas.clientWidth == 0) return;
-					const zoomLevel = calcZoomLevel(proxy.canvasWidth, canvas);
-					if (zoomLevels[zoomLevel] != zoom) {
-						zoom = zoomLevels[zoomLevel];
-
-						if (renderTask)
-							renderTask.cancel();
-						const [task, render] = await this.submitRender(proxy, zoom, canvas);
-						renderTask = task;
-						await render.finally(() => { renderTask = null; });
-						if (proxy)
-							this.copyCanvas(canvas, proxy.canvas);
-					}
-
-				};
-				if (zoomContainer) {
-					mutation = new MutationObserver(resizer); mutation.observe(zoomContainer, { attributes: true, attributeFilter: ["style"] });
-					resize = new ResizeObserver(resizer); resize.observe(div);
-				}
-
-				this.copyCanvas(proxy.canvas, canvas);
-				const zoomLevel = calcZoomLevel(proxy.canvasWidth, canvas);
+		const resizer = async () => {
+			if (canvas.clientWidth == 0) return;
+			const zoomLevel = calcZoomLevel(canvasWidth, canvas);
+			if (zoomLevels[zoomLevel] != zoom) {
 				zoom = zoomLevels[zoomLevel];
 
+				const blockHash = hash([parameters.url, parameters.rect, parameters.rotation, page.pageNumber, zoom]);
+				proxy = await getProxy(blockHash);
 
-				if (renderTask)
-					renderTask.cancel();
-				const [task, render] = await this.submitRender(proxy, zoom, canvas);
-				renderTask = task;
-				await render.finally(() => { renderTask = null; });
+				await cachedRender();
+			}
 
-				this.copyCanvas(canvas, proxy.canvas);
+		};
+		if (zoomContainer) {
+			mutation = new MutationObserver(resizer); mutation.observe(zoomContainer, { attributes: true, attributeFilter: ["style"] });
+			resize = new ResizeObserver(resizer); resize.observe(div);
+		}
+
+		const intersection = new IntersectionObserver(async (changes, _) => {
+
+			if (changes[0].isIntersecting) {
+
+				const zoomLevel = calcZoomLevel(canvasWidth, canvas);
+				zoom = zoomLevels[zoomLevel];
+
+				const blockHash = hash([parameters.url, parameters.rect, parameters.rotation, page.pageNumber, zoom]);
+				proxy = await getProxy(blockHash);
+				await cachedRender();
 
 			} else {
 				if (renderTask)
@@ -194,30 +184,42 @@ export default class BetterPDFPlugin extends Plugin {
 				if (mutation) mutation.disconnect();
 				if (resize) resize.disconnect();
 				if (canvas) {
-					resetCanvas(canvas, proxy.canvasWidth, proxy.canvasHeight, zoom);
+					resetCanvas(canvas, proxy.canvasWidth, proxy.canvasHeight, proxy.zoom);
 				}
 				proxy = null;
 			}
+
 		}, { rootMargin: '50%' });
 		intersection.observe(div); // the rootMargin here does not work
 
 
+		async function cachedRender() {
+			if (proxy.canvas) {
+				self.copyCanvas(proxy.canvas, canvas);
+			} else {
+				if (renderTask)
+					renderTask.cancel();
+				const [task, render] = await self.submitRender(proxy, canvas);
+				renderTask = task;
+				await render.finally(() => { renderTask = null; });
+
+				proxy.canvas = self.cloneCanvas(canvas, parameters);
+			}
+		}
 
 
-		async function getProxy() {
+		async function getProxy(blockHash: string) {
 			return await self.renderProxies.getOrSetAsync(blockHash, async () => {
-				const canvas = self.createCanvas(parameters);
 				const { canvasWidth, canvasHeight, viewport, baseScale } = self.pageViewport(page, parameters, PRINT_UNITS);
 
 				let zoomLevel = calcZoomLevel(canvasWidth, canvas);
 				const zoom = zoomLevels[zoomLevel];
-				resetCanvas(canvas, canvasWidth, canvasHeight, zoom);
 				const proxy: PageRenderProxy = {
 					container: div,
-					canvas,
+					canvas: null,
 					canvasWidth,
 					canvasHeight,
-					page, viewport, baseScale
+					zoom, page, viewport, baseScale
 				};
 				return proxy;
 			});
@@ -244,9 +246,10 @@ export default class BetterPDFPlugin extends Plugin {
 		}
 	}
 
-	private submitRender(proxy: PageRenderProxy, zoom: number, target: HTMLCanvasElement) {
+	private submitRender(proxy: PageRenderProxy, target: HTMLCanvasElement) {
 		const canvas = window.document.createElement("canvas")
 		const context = canvas.getContext("2d");
+		const zoom = proxy.zoom
 		canvas.width = proxy.canvasWidth * zoom;
 		canvas.height = proxy.canvasHeight * zoom;
 

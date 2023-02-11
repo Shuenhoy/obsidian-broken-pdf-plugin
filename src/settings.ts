@@ -10,6 +10,7 @@ export class BetterPdfSettings {
     render_dpi: number = 72;
     cocurrency: number = 4;
     max_cached_opened_files: number = 10;
+    max_cached_rendered_pieces: number = 50;
 }
 
 export class BetterPdfSettingsTab extends PluginSettingTab {
@@ -64,6 +65,14 @@ export class BetterPdfSettingsTab extends PluginSettingTab {
             .setDesc("Default: 10. You need to reload this plugin to apply this setting.")
             .addText(text => text.setValue(`${this.plugin.settings.max_cached_opened_files}`).onChange((value) => {
                 this.plugin.settings.max_cached_opened_files = Number.parseInt(value);
+                this.plugin.saveData(this.plugin.settings);
+            }));
+
+        new Setting(containerEl)
+            .setName("Max cached rendered pieces")
+            .setDesc("Default: 50. You need to reload this plugin to apply this setting.")
+            .addText(text => text.setValue(`${this.plugin.settings.max_cached_rendered_pieces}`).onChange((value) => {
+                this.plugin.settings.max_cached_rendered_pieces = Number.parseInt(value);
                 this.plugin.saveData(this.plugin.settings);
             }));
     }

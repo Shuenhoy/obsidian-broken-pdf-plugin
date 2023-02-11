@@ -57,7 +57,7 @@ export default class BetterPDFPlugin extends Plugin {
 
 		this.addSettingTab(new BetterPdfSettingsTab(this.app, this));
 		this.documents = new AsyncLRU({ max: this.settings.max_cached_opened_files });
-		this.renderProxies = new AsyncLRU({ max: 10 });
+		this.renderProxies = new AsyncLRU({ max: this.settings.max_cached_rendered_pieces });
 
 		if (!customElements.get(DivWithDisconnected.ID)) {
 			customElements.define(DivWithDisconnected.ID, DivWithDisconnected, { extends: "div" });

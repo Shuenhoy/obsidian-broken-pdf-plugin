@@ -1,10 +1,10 @@
 {
-	"id": "better-pdf-plugin",
-	"name": "Better PDF Plugin",
-	"version": "1.4.0",
+	"id": "broken-pdf",
+	"name": "BrokenPDF",
+	"version": "1.5.0",
 	"minAppVersion": "0.11.13",
-	"description": "Goal of this Plugin in to implement a native PDF handling workflow",
-	"author": "MSzturc",
-	"authorUrl": "https://github.com/MSzturc",
+	"description": "Goal of this Plugin in to implement a native PDF handling workflow. Fork of Better PDF Plugin",
+	"author": "Shuenhoy",
+	"authorUrl": "https://github.com/Shuenhoy",
 	"isDesktopOnly": false
 }

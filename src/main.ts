@@ -87,7 +87,7 @@ export default class BetterPDFPlugin extends Plugin {
 					}
 
 					const document = await this.documents.getOrSetAsync(parameters.url, async () => {
-						return await pdfjs.getDocument(await readBinary(parameters.url)).promise;
+						return await pdfjs.getDocument(await readBinary(parameters.url, this.settings.zotero_storage)).promise;
 					});
 
 

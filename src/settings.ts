@@ -11,6 +11,7 @@ export class BetterPdfSettings {
     cocurrency: number = 4;
     max_cached_opened_files: number = 10;
     max_cached_rendered_pieces: number = 50;
+    zotero_storage: string = "";
 }
 
 export class BetterPdfSettingsTab extends PluginSettingTab {
@@ -75,5 +76,13 @@ export class BetterPdfSettingsTab extends PluginSettingTab {
                 this.plugin.settings.max_cached_rendered_pieces = Number.parseInt(value);
                 this.plugin.saveData(this.plugin.settings);
             }));
+
+        new Setting(containerEl)
+            .setName("Path of Zotero Storage")
+            .setDesc("Path of Zotero Storage")
+            .addText(text => text.setValue(`${this.plugin.settings.zotero_storage}`).onChange((value) => {
+                this.plugin.settings.zotero_storage = value;
+                this.plugin.saveData(this.plugin.settings);
+            }))
     }
 }

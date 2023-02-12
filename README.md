@@ -4,6 +4,7 @@
 - Why it is named "BrokenPDF"?
 - It is intended to display PDF file in many small pieces in canvas.
 
+Use https://github.com/Shuenhoy/zotero-break-pdf to help you generate the piece info by area selection!
 ### Features (Better PDF Plugin)
 
 - Insert a single PDF Page inside Note
@@ -21,7 +22,8 @@
 - Lazy rendering
 - Use relative(ratio) for rectangle
 - Maximum cocurrency of rendering config.
-- Support `file://`
+- Support `file://`(any path from your disk) and `zotero://ID/filename`, which will redirect to your Zotero storage dir in your settings.
+
 
 
 ### Syntax

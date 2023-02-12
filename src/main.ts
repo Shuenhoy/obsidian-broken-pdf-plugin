@@ -150,6 +150,7 @@ export default class BetterPDFPlugin extends Plugin {
 		div.appendChild(canvas);
 
 		const resizer = async () => {
+			console.log("?")
 			if (canvas.clientWidth == 0) return;
 			const zoomLevel = calcZoomLevel(canvasWidth, canvas);
 			if (zoomLevels[zoomLevel] != zoom) {
@@ -162,15 +163,15 @@ export default class BetterPDFPlugin extends Plugin {
 			}
 
 		};
-		if (zoomContainer) {
-			mutation = new MutationObserver(resizer); mutation.observe(zoomContainer, { attributes: true, attributeFilter: ["style"] });
-			resize = new ResizeObserver(resizer); resize.observe(div);
-		}
+
 
 		const intersection = new IntersectionObserver(async (changes, _) => {
 
 			if (changes[0].isIntersecting) {
-
+				if (zoomContainer) {
+					mutation = new MutationObserver(resizer); mutation.observe(zoomContainer, { attributes: true, attributeFilter: ["style"] });
+					resize = new ResizeObserver(resizer); resize.observe(div);
+				}
 				const zoomLevel = calcZoomLevel(canvasWidth, canvas);
 				zoom = zoomLevels[zoomLevel];
 

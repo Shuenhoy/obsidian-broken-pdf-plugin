@@ -129,8 +129,8 @@ export default class BetterPDFPlugin extends Plugin {
 		const self = this;
 		host.appendChild(div);
 
-		const zoomLevels = [0.01, 0.25, 0.5, 0.75, 1.0];
-		const zoomLevelSeps = [0.1, 0.35, 0.6, 0.85, 1.0];
+		const zoomLevels = [0.1, 0.35, 0.6, 0.85, 1.0];
+		const zoomLevelSeps = [0.05, 0.3, 0.55, 0.8, 1.0];
 
 		if (div.clientWidth == 0) return;
 
